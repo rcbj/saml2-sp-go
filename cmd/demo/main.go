@@ -46,7 +46,17 @@ var (
 	spErr          error
 	sessionsMu     sync.Mutex
 	sessions       = map[string]*held{}
+	eventsMu       sync.Mutex
+	events         []seen
 )
+
+const sessionRevoked = "https://schemas.openid.net/secevent/caep/event-type/session-revoked"
+
+// seen is one accepted Shared Signals event, as GET /live-status reports it.
+type seen struct {
+	Type string `json:"type"`
+	JTI  string `json:"jti"`
+}
 
 type held struct {
 	login   *saml.SamlLogin
@@ -261,6 +271,31 @@ func startReceiver(sp *saml.ServiceProvider) {
 		receiverState = "not running: " + err.Error()
 		return
 	}
+	built.On("*", func(event *saml.SignalEvent) error {
+		eventsMu.Lock()
+		events = append(events, seen{Type: event.Type, JTI: event.JTI})
+		eventsMu.Unlock()
+		// The assertion SessionIndex may be the assertion id rather than the
+		// sign-on session the CAEP event names, so nothing matched. This demo
+		// then ends its one local session. Demo code, not the library.
+		if event.Type != sessionRevoked || event.Ended {
+			return nil
+		}
+		sessionsMu.Lock()
+		if len(sessions) != 1 {
+			sessionsMu.Unlock()
+			return nil
+		}
+		var sid string
+		for id := range sessions {
+			sid = id
+		}
+		delete(sessions, sid)
+		sessionsMu.Unlock()
+		built.Untrack(sid)
+		fmt.Println("ssf: the assertion SessionIndex is not the CAEP session id; ended this demo's one session")
+		return nil
+	})
 	receiver = built
 	go func() {
 		if err := built.Start(); err != nil {
@@ -285,6 +320,10 @@ func route(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("content-type", "text/plain")
 		w.WriteHeader(http.StatusOK)
 		_, _ = io.WriteString(w, "ok")
+		return
+	}
+	if r.URL.Path == "/live-status" && r.Method == http.MethodGet {
+		liveStatus(w)
 		return
 	}
 	switch r.URL.Path {
@@ -325,6 +364,34 @@ func route(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	http.NotFound(w, r)
+}
+
+// liveStatus answers the live test: signed in or not, the subject, the
+// receiver state, and each accepted event's type and jti. Never an assertion.
+func liveStatus(w http.ResponseWriter) {
+	now := time.Now()
+	signedIn := false
+	var subject any
+	sessionsMu.Lock()
+	for _, item := range sessions {
+		if now.After(item.expires) {
+			continue
+		}
+		signedIn = true
+		if subject == nil && item.login.NameID != "" {
+			subject = item.login.NameID
+		}
+	}
+	sessionsMu.Unlock()
+	eventsMu.Lock()
+	list := append([]seen{}, events...)
+	eventsMu.Unlock()
+	body, _ := json.Marshal(map[string]any{
+		"signedIn": signedIn, "subject": subject, "receiver": receiverState, "events": list,
+	})
+	w.Header().Set("content-type", "application/json")
+	w.Header().Set("cache-control", "no-store")
+	_, _ = w.Write(body)
 }
 
 func page(w http.ResponseWriter, r *http.Request) {

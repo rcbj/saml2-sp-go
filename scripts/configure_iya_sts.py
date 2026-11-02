@@ -4,6 +4,7 @@
 """Register the demo with a running iya-sts. The metadata documents do the SAML work.
 
 This copy asks the Go saml2-sp command for keys, metadata, and a summary of the identity provider.
+It uses the saml2-sp binary on PATH (the demo image installs one), and falls back to `go run`.
 """
 
 from __future__ import annotations
@@ -12,6 +13,7 @@ import base64
 import json
 import os
 import re
+import shutil
 import ssl
 import subprocess
 import sys
@@ -208,8 +210,10 @@ def files_of(config_path: str) -> DemoFiles:
 
 
 def _cli(args: list[str], input_text: str | None = None) -> str:
+    binary = shutil.which("saml2-sp")
+    command = [binary, *args] if binary else ["go", "run", "./cmd/saml2-sp", *args]
     proc = subprocess.run(
-        ["go", "run", "./cmd/saml2-sp", *args],
+        command,
         cwd=repo_root(), input=input_text, capture_output=True, text=True, check=False,
     )
     if proc.returncode != 0:
@@ -302,7 +306,7 @@ def fetch_tls_root(origin: str) -> tuple[str, str, str]:
     pems = re.findall(r"-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----", proc.stdout.decode("utf-8", "replace"), re.S)
     if not pems:
         raise SystemExit(f"could not read a TLS certificate from {origin}")
-    return pems[-1] + "\n", "the last certificate openssl presented", ""
+    return pems[-1] + "\n", "the last certificate of the presented chain (the self-signed Root CA)", ""
 
 
 def _request(url: str, method: str, headers: dict, body: bytes | None, ca: str | None):
@@ -481,12 +485,7 @@ def main(argv: list[str] | None = None) -> None:
 
 
 def _generate_keys(config_path: str) -> None:
-    proc = subprocess.run(
-        ["go", "run", "./cmd/saml2-sp", "generate-keys", "--config", config_path],
-        cwd=repo_root(), check=False,
-    )
-    if proc.returncode != 0:
-        raise SystemExit("generate-keys failed")
+    print(_cli(["generate-keys", "--config", config_path]), end="")
 
 
 if __name__ == "__main__":
