@@ -1,6 +1,15 @@
 # syntax=docker/dockerfile:1
 # SPDX-FileCopyrightText: 2026 Iya CyberSecurity Solutions, LLC
 # SPDX-License-Identifier: MIT
+# `docker build --target test` runs the suite in this image.
+# The demo image below does not run it.
+FROM golang:1.27 AS test
+RUN apt-get update && apt-get install -y --no-install-recommends python3 \
+ && rm -rf /var/lib/apt/lists/*
+WORKDIR /src
+COPY . .
+RUN go test ./...
+
 FROM golang:1.27
 WORKDIR /app
 COPY go.mod go.sum ./

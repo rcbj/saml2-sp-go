@@ -17,9 +17,16 @@ The module is `github.com/rcbj/saml2-sp-go` and the package is `saml`. `saml.jso
 
 `Login` returns a redirect URL or `PostFormHTML` fields. `Acs` accepts a POST body as a string or a map. Artifact resolution is a signed SOAP `ArtifactResolve`. HTTP-Redirect query signatures use RSA-SHA256 (`http://www.w3.org/2001/04/xmldsig-more#rsa-sha256`). Success is `urn:oasis:names:tc:SAML:2.0:status:Success`.
 
-```bash
-go run ./cmd/saml2-sp generate-keys --config demo/saml.json
-go run ./cmd/saml2-sp metadata --config demo/saml.json
+```sh
+docker compose build
+docker run --rm --user "$(id -u):$(id -g)" \
+  -v "$PWD/demo:/app/demo" \
+  saml2-sp-go-demo \
+  saml2-sp generate-keys --config demo/saml.json
+docker run --rm --user "$(id -u):$(id -g)" \
+  -v "$PWD/demo:/app/demo" \
+  saml2-sp-go-demo \
+  saml2-sp metadata --config demo/saml.json
 ```
 
 ## Shared Signals
@@ -39,13 +46,15 @@ The receiver discovers the transmitter, keeps one poll stream (`urn:ietf:rfc:893
 ## Tests
 
 ```bash
-go test ./...
+docker build --target test .
 ```
+
+The suite runs in a container.
 
 Signatures and decryption are real (`crypto/rsa`, exclusive XML canonicalization). The stub identity provider is in the test files. No live iya-sts. Keys are generated in the test.
 
 ## Demo
 
-`go run ./cmd/demo`. `GET /healthz` is `200` with body `ok` and does not dial an identity provider. Pages: sign-in, `/login` (redirect or POST form), `/saml/acs`, and logout. Loopback entityID and assertion-consumer URLs follow `PORT` (default 3000). Other hosts stay as written. `PUBLIC_URL` or `--public-url` replaces the origin and keeps the path. The default `http://localhost:3000` is not an explicit public URL. `demo/saml.json` uses `file:` placeholders and omits `signals`. Do not commit `demo/generated/`.
+`docker compose up --build`. `GET /healthz` is `200` with body `ok` and does not dial an identity provider. Pages: sign-in, `/login` (redirect or POST form), `/saml/acs`, and logout. Loopback entityID and assertion-consumer URLs follow `PORT` (default 3000). Other hosts stay as written. `PUBLIC_URL` or `--public-url` replaces the origin and keeps the path. The default `http://localhost:3000` is not an explicit public URL. `demo/saml.json` uses `file:` placeholders and omits `signals`. Do not commit `demo/generated/`.
 
 `scripts/configure_iya_sts.py` is standard-library Python. It calls `go run ./cmd/saml2-sp` for keys, metadata, and the identity-provider summary. The container `PORT` wins over the shell `PORT`.
