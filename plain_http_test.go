@@ -4,9 +4,11 @@
 package saml
 
 import (
+	"encoding/pem"
 	"errors"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"sync/atomic"
@@ -161,4 +163,39 @@ func TestHttpsToAnUnreachableHostIsAConnectionError(t *testing.T) {
 	if strings.Contains(samlErr.Message, plainRefusal) || !strings.Contains(strings.ToLower(samlErr.Message), "refused") {
 		t.Fatalf("expected a connection error, got %q", samlErr.Message)
 	}
+}
+
+func TestRefusesARedirectToExampleComFromLoopbackOrHttps(t *testing.T) {
+	away := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "http://example.com/saml/metadata", http.StatusFound)
+	})
+	plain := httptest.NewServer(away)
+	defer plain.Close()
+	rejects(t, func() error { return metadataFrom(plain.URL + "/saml/metadata") }, "metadata", `^http://example\.com is refused: `+plainRefusal)
+	secure := httptest.NewTLSServer(away)
+	defer secure.Close()
+	ca := string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: secure.Certificate().Raw}))
+	rejects(t, func() error {
+		_, err := send(secure.URL+"/saml/metadata", "GET", nil, "", &TLSOptions{CA: ca}, "metadata")
+		return err
+	}, "metadata", `^http://example\.com is refused: `+plainRefusal)
+}
+
+func TestRefusesAUrlWithWhitespaceOrAControlCharacter(t *testing.T) {
+	stub := startCounting(t)
+	for _, raw := range []string{
+		"http://127.0.0.1:" + stub.port + "/saml metadata",
+		"http://127.0.0.1:" + stub.port + "\t@example.com/",
+		"https://127.0.0.1:" + stub.port + "/a\r\nX-Injected: s3cret",
+		"http://127.0.0.1:" + stub.port + "/a\x00b",
+		"http://127.0.0.1:" + stub.port + "/a\u00a0b",
+	} {
+		err := metadataFrom(raw)
+		rejects(t, func() error { return err }, "metadata", `^a URL containing whitespace or a control character is refused$`)
+		if strings.Contains(err.Error(), "s3cret") {
+			t.Fatalf("the refusal repeats the URL: %s", err)
+		}
+	}
+	rejects(t, func() error { return transmitterAt(t, "http://127.0.0.1:"+stub.port+"\n") }, "ssf", `whitespace or a control character`)
+	stub.assertUntouched(t)
 }
