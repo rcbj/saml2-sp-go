@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"strings"
 	"time"
+	"unicode"
 )
 
 const (
@@ -64,6 +65,14 @@ func refusePlainHTTP(u *url.URL, code string) error {
 }
 
 func send(rawURL, method string, headers map[string]string, body string, tlsOpt *TLSOptions, code string) (*httpAnswer, error) {
+	// A URL with whitespace or a control character is refused before any
+	// parser reads it, so two parsers cannot disagree about its host. The
+	// message does not repeat the URL, which may carry a secret.
+	for _, r := range rawURL {
+		if unicode.IsSpace(r) || unicode.IsControl(r) {
+			return nil, errCode(code, "a URL containing whitespace or a control character is refused")
+		}
+	}
 	if !(strings.HasPrefix(rawURL, "https://") || strings.HasPrefix(rawURL, "http://")) {
 		return nil, errCode(code, rawURL+" is not an http(s) URL")
 	}
