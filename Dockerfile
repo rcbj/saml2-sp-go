@@ -11,6 +11,10 @@ COPY . .
 RUN go test ./...
 
 FROM golang:1.27
+# python3 and openssl run scripts/configure_iya_sts.py inside this image:
+# the live test registers the demo here, so Go never runs on the host.
+RUN apt-get update && apt-get install -y --no-install-recommends python3 openssl \
+ && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY go.mod go.sum ./
 COPY *.go ./
