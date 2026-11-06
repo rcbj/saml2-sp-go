@@ -1,6 +1,6 @@
 # saml2-sp
 
-Go service provider for SAML 2.0 Web Browser SSO, plus a Shared Signals poll receiver. Version 0.1.0. MIT. `develop` and `main` are one commit. Publishing is not set up.
+Go service provider for SAML 2.0 Web Browser SSO, plus a Shared Signals poll receiver. MIT. `develop` and `main` are one commit. A release happens when the library's files changed since the last release's tag: `release.yml` takes one patch above the highest published version, publishes it, and creates the matching tag and GitHub Release. A change to tests, the demo, or the docs releases nothing. To choose a version or start a new minor, raise `VERSION`; the version is stamped in CI and is not committed, so the manifests can trail what is published.
 
 ## Usage
 
@@ -41,3 +41,7 @@ With an `ssf` block and without `"signals": false`, the demo starts one poll rec
 ## Plain http (#7)
 
 `send` in `http.go` is the one place every fetch goes through (metadata URL, `ArtifactResolve`, SSF configuration, JWKS, stream and poll). It refuses plain `http://` to a host that is not loopback (`127.0.0.0/8`, `::1`, `localhost`) before `http.NewRequest`, and its `CheckRedirect` refuses a redirect to one, naming only the scheme and host[:port] under the fetch's own code; userinfo is never loopback. Before that, `send` refuses any URL (https too) containing whitespace or a control character, without repeating it. No opt-out. `plain_http_test.go` covers each fetch on `http://example.com` and on `http://0.0.0.0:<port>` (which reaches a 127.0.0.1 listener on Linux, so a zero accept count proves no connection), userinfo, loopback still working, redirects (to `0.0.0.0`, and from loopback http and from https to `http://example.com`), whitespace and control characters, and https to a closed port failing as a connection error.
+
+## Releases
+
+A Go module publishes through its tag. A release happens when the library's files changed since the last release's tag: `release.yml` takes one patch above the highest published version, publishes it, and creates the matching tag and GitHub Release. A change to tests, the demo, or the docs releases nothing. To choose a version or start a new minor, raise `VERSION`; the version is stamped in CI and is not committed, so the manifests can trail what is published. `release.yml` then asks the module proxy to fetch the version.
