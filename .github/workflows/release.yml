@@ -1,0 +1,91 @@
+# SPDX-FileCopyrightText: 2026 Iya CyberSecurity Solutions, LLC
+# SPDX-License-Identifier: MIT
+#
+# Go modules publish through their tags: the module proxy reads a version from
+# the tag. So a release is the tag, a GitHub Release, and a request that makes
+# the proxy fetch it.
+name: release
+
+on:
+  workflow_run:
+    workflows: ["Tests"]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+# One release at a time: each reads the version the one before it took.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    # The test workflow has already succeeded for this commit on main. Release
+    # only when that commit is a pull request merged into main; a direct push
+    # stays unreleased. .github/scripts/release_decision.py picks the version:
+    # VERSION when it is ahead of what is published, one patch higher when the
+    # shipped files changed since the last release's tag, and otherwise no
+    # release at all, so a change to tests, the demo, or the docs ships nothing.
+    # The version is written into this workspace only and is never committed.
+    if: >
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: read
+    steps:
+      - name: Require a pull request merged into main
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -eu
+          count=$(gh api \
+            -H "Accept: application/vnd.github+json" \
+            "repos/${GITHUB_REPOSITORY}/commits/${SHA}/pulls" \
+            --jq '[.[] | select(.base.ref == "main" and .merged_at != null)] | length')
+          if [ "$count" = "0" ]; then
+            echo "This commit on main did not come from a merged pull request."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Every tag: the last release's tag is what the decision compares with.
+      - uses: actions/checkout@v4
+        if: steps.gate.outputs.publish == 'true'
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Decide whether this commit is a release
+        id: decide
+        if: steps.gate.outputs.publish == 'true'
+        env:
+          SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          python3 .github/scripts/release_decision.py decide tag - "$SHA" ':(glob)**/*.go' go.mod go.sum ':(exclude,glob)**/*_test.go' ':(exclude)cmd/demo' ':(exclude)demo'
+
+      # Publishing and this step are one release: the tag it creates is the
+      # baseline the next decision compares with.
+      - name: Create the tag and the GitHub Release
+        if: steps.decide.outputs.release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+          TAG: ${{ steps.decide.outputs.tag }}
+        run: |
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$SHA" --title "$TAG" --generate-notes
+
+      - name: Ask the module proxy to fetch the version
+        if: steps.decide.outputs.release == 'true'
+        env:
+          TAG: ${{ steps.decide.outputs.tag }}
+        run: |
+          curl -fsS "https://proxy.golang.org/github.com/rcbj/saml2-sp-go/@v/$TAG.info"
