@@ -2,7 +2,7 @@
 
 Server-side SAML 2.0 service provider for Go. It sends a signed `AuthnRequest` on HTTP-Redirect or HTTP-POST, accepts a `Response` on HTTP-POST, HTTP-Redirect, or HTTP-Artifact, verifies XML signatures, decrypts encrypted assertions, and can poll a Shared Signals transmitter for CAEP and RISC events.
 
-Version 0.1.0. License: MIT. `develop` and `main` are one commit. Publishing is not set up.
+License: MIT. `develop` and `main` are one commit. A release happens when the library's files changed since the last release's tag: `release.yml` takes one patch above the highest published version, publishes it, and creates the matching tag and GitHub Release. A change to tests, the demo, or the docs releases nothing. To choose a version or start a new minor, raise `VERSION`; the version is stamped in CI and is not committed, so the manifests can trail what is published.
 
 ## Usage
 
